@@ -33,7 +33,7 @@ If *first user* **confirm** deal - status change to **3**, deal **completed**
 ## Get-methods
 
 `get_smc_balance():int` - Find out the current balance of the smart contract \
-`get_status():int` - Find out the current status of the smart contract \
+`get_status():int` - Find out the current status of the smart contract 
 
 `get_creator_address():slice` - Find out creator's address \
 `get_creator_coins():int` - Find out creator's amount of coins \

@@ -1,7 +1,8 @@
 # ton-swap-nft
 A smart contract for the TON blockchain, which acts as a guarantor for NFT exchanges between users
 
-[Example of a smart contract in action](https://testnet.tonviewer.com/kQCYQl4tfbzE3FzBZ0PQXcG2BRKXvcXkIA5HBSdtdAEZtpmW):  \
+[Example of a smart contract in action](https://testnet.tonviewer.com/kQCYQl4tfbzE3FzBZ0PQXcG2BRKXvcXkIA5HBSdtdAEZtpmW)
+
 [Visual representation of smart contract logic](https://figma.com/board/yHvSyOAmaZj6pahrX5fKDI/NFT-Swapper-idea)
 
 ## Op-codes:

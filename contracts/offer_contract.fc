@@ -1,0 +1,192 @@
+#include "imports/stdlib.fc";
+#include "imports/const.fc";
+#include "imports/message-utils.fc";
+#include "imports/utils.fc";
+
+;; storage scheme
+;; storage$_
+;;   status:uint16
+;;   f_addr:MsgAddressInt f_coins:Coins f_nfts:(HashmapE 256 MsgAddressInt)
+;;   s_addr:MsgAddressInt s_coins:Coins s_nfts:(HashmapE 256 MsgAddressInt)
+;;   service_info:^[
+;;     admin_addr:   MsgAddressInt
+;;     service_addr1:MsgAddressInt
+;;     service_addr2:MsgAddressInt
+;;   ]
+;;   = Storage;
+
+;; f_ - first user, creator
+;; s_ - second user
+
+() recv_internal(int balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) { ;; ignore empty messages
+        return ();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+
+    slice sender_address = cs~load_msg_addr();
+
+    (int status, slice f_address, int f_coins, cell f_nfts, slice s_address, int s_coins, cell s_nfts, cell service_info) = load_data();
+
+    int op = in_msg_body~load_uint(32);
+
+    if(op == op::cancel_offer) {
+        throw_unless(error::wrong_action, 
+            (status == status::wait_second) | 
+            (status == status::wait_confirm)
+        );
+
+        slice service_slice = service_info.begin_parse();
+        slice admin_address = service_slice~load_msg_addr();
+
+        throw_unless(error::invalid_address, (
+            equal_slices(sender_address, f_address) |
+            equal_slices(sender_address, s_address) |
+            equal_slices(sender_address, admin_address)
+        ));
+
+        raw_reserve(MIN_TONS_FOR_STORAGE, msg_mode::DEFAULT);
+
+        if(~(f_nfts.dict_empty?())) {
+            send_nfts(f_address, f_nfts);
+        }
+
+        send_coins(f_address, f_coins + TX_FEE + SERVICE_FEE, msg_mode::DEFAULT + msg_mode::IGNORE_ERRORS, "Refund - Deal cancelled");
+
+        int second_user_init? = s_address.slice_bits() > 2;
+        if(second_user_init?) { ;; in case if cancelled by second user after op::accept_offer
+            if(~(s_nfts.dict_empty?())) {
+                send_nfts(s_address, s_nfts);
+            }
+
+            send_coins(s_address, 0, msg_mode::CARRY_REMAINING_BALANCE + msg_mode::IGNORE_ERRORS, "Refund - Deal cancelled");
+        }
+        else {
+            send_coins(f_address, 0, msg_mode::CARRY_REMAINING_BALANCE + msg_mode::IGNORE_ERRORS, "");
+        }
+
+        status = status::canceled;
+
+        save_data(status, f_address, f_coins, f_nfts, s_address, s_coins, s_nfts, service_info);
+        return ();
+    }
+
+    if(op == op::accept_offer) {
+        throw_if(error::invalid_address, equal_slices(sender_address, f_address)); ;; first user != second user
+
+        throw_unless(error::wrong_action, status == status::wait_second);
+
+        s_address = sender_address;
+        s_coins = in_msg_body~load_coins();
+        s_nfts = in_msg_body~load_dict();
+
+        throw_if(error::invalid_amount, msg_value < s_coins);
+
+        status = status::wait_confirm;
+
+        save_data(status, f_address, f_coins, f_nfts, s_address, s_coins, s_nfts, service_info);
+        return ();
+    }
+
+    if(op == op::confirm_offer) {
+        throw_unless(error::wrong_action, status == status::wait_confirm);
+        throw_unless(error::invalid_address, equal_slices(sender_address, f_address));
+
+        raw_reserve(MIN_TONS_FOR_STORAGE, msg_mode::DEFAULT);
+
+        if(~(f_nfts.dict_empty?())) {
+            send_nfts(s_address, f_nfts);
+        }
+
+        if(~(s_nfts.dict_empty?())) {
+            send_nfts(f_address, s_nfts);
+        }
+
+        send_coins(f_address, s_coins + TX_FEE, msg_mode::DEFAULT + msg_mode::PAY_FEES_SEPARATELY, "Success!");
+
+        slice service_slice = service_info.begin_parse();
+        service_slice~load_msg_addr();
+        slice service_addr1 = service_slice~load_msg_addr();
+        slice service_addr2 = service_slice~load_msg_addr();
+
+        if((service_addr1.slice_bits() > 2) & (service_addr2.slice_bits() > 2)) {
+            send_coins(
+                service_addr1, 
+                ((SERVICE_FEE * 2) / 100) * 30, 
+                msg_mode::DEFAULT + msg_mode::PAY_FEES_SEPARATELY, 
+                "Transfer service fee 1"
+            );
+            send_coins(
+                service_addr2, 
+                ((SERVICE_FEE * 2) / 100) * 70, 
+                msg_mode::DEFAULT + msg_mode::PAY_FEES_SEPARATELY, 
+                "Transfer service fee 2"
+            );
+        }
+
+        send_coins(s_address, 0, msg_mode::CARRY_REMAINING_BALANCE, "Success!");
+
+        status = status::offer_completed;
+        save_data(status, f_address, f_coins, f_nfts, s_address, s_coins, s_nfts, service_info);
+        return ();
+    }
+
+    throw(error::unknwown_op);
+}
+
+int get_smc_balance() method_id {
+    [int balance, _] = get_balance();
+    return balance;
+}
+
+int get_status() method_id {
+    slice ds = get_data().begin_parse();
+    return ds~load_uint(16);
+}
+
+(slice, int) get_creator_data() method_id {
+    (_, slice first_address, int first_coins, _, _, _, _, _) = load_data();
+
+    return (
+        first_address,
+        first_coins
+    );
+}
+
+slice get_creator_nft_address_by_index(int index) method_id {
+    (_, _, _, cell first_nfts, _, _, _, _) = load_data();
+    
+    if(first_nfts.dict_empty?()) {
+        throw(error::dict_empty);
+    }
+
+    (slice nft_address, int success) = first_nfts.udict_get?(32, index);
+    throw_unless(error::dict_value_not_found, success);
+    return nft_address;
+}
+
+(slice, int) get_user_data() method_id {
+    (_, _, _, _, slice second_address, int second_coins, _, _) = load_data();
+
+    return (
+        second_address,
+        second_coins
+    );
+}
+
+slice get_user_nft_address_by_index(int index) method_id {
+    (_, _, _, _, _, _, cell second_nfts, _) = load_data();
+    if(second_nfts.dict_empty?()) {
+        throw(error::dict_empty);
+    }
+
+    (slice nft_address, int success) = second_nfts.udict_get?(32, index);
+    throw_unless(error::dict_value_not_found, success);
+    return nft_address;
+}

@@ -1,0 +1,24 @@
+const int ONE_TON = 1000000000;
+const int MIN_TONS_FOR_STORAGE = ONE_TON / 1000;
+const int TX_FEE = ONE_TON / 2;
+const int SERVICE_FEE = ONE_TON / 10;
+
+;; Op-codes
+const int op::cancel_offer = 1;
+const int op::accept_offer = 2;
+const int op::confirm_offer = 3;
+const int op::nft_transfer = 0x5fcc3d14;
+
+;; Statuses
+const int status::canceled = 0;
+const int status::wait_second = 1;
+const int status::wait_confirm = 2;
+const int status::offer_completed = 3;
+
+;; Error codes
+const int error::wrong_action = 401;
+const int error::invalid_amount = 402;
+const int error::invalid_address = 403;
+const int error::dict_value_not_found = 404;
+const int error::dict_empty = 405;
+const int error::unknwown_op = 0xffffff;

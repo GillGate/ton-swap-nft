@@ -1,0 +1,78 @@
+#include "stdlib.fc";
+#include "const.fc";
+#include "message-utils.fc";
+
+() save_data(
+    int status,
+    slice f_address, int f_coins, cell f_nfts, 
+    slice s_address, int s_coins, cell s_nfts, 
+    cell service_storage
+) impure inline {
+    set_data(
+        begin_cell()
+            .store_uint(status, 16)
+            .store_slice(f_address)
+            .store_coins(f_coins)
+            .store_dict(f_nfts)
+            .store_slice(s_address)
+            .store_coins(s_coins)
+            .store_dict(s_nfts)
+            .store_ref(service_storage)
+        .end_cell()
+    );
+}
+
+(int, slice, int, cell, slice, int, cell, cell) load_data() inline {
+    slice ds = get_data().begin_parse();
+    return (
+        ds~load_uint(16), ;; status
+        ds~load_msg_addr(), ;; f_address
+        ds~load_coins(), ;; f_coins
+        ds~load_dict(), ;; f_nfts
+        ds~load_msg_addr(), ;; s_address
+        ds~load_coins(), ;; s_coins
+        ds~load_dict(), ;; s_nfts
+        ds~load_ref() ;; service_storage
+    );
+}
+
+() send_nfts(slice user_address, cell user_nfts) impure inline {
+    (int key, slice nft_address, int get_next?) = user_nfts.udict_get_min?(32);
+
+    while(get_next?) {
+        var transfer_msg = begin_cell()
+            .store_uint(msg_flag::bounceable, 6)
+            .store_slice(nft_address)
+            .store_coins(ONE_TON / 25)
+            .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_ref(
+                begin_cell()
+                    .store_uint(op::nft_transfer, 32)
+                    .store_uint(0, 64)
+                    .store_slice(user_address)  ;; new_owner_address
+                    .store_slice(user_address)  ;; response_address
+                    .store_int(0, 1)  ;; empty custom_payload
+                    .store_coins(ONE_TON / 200)   ;; forward amount to new_owner_address
+                    .store_int(0, 1) ;; empty forward_payload
+                .end_cell()
+            )
+            .end_cell();
+
+        send_raw_message(transfer_msg, msg_mode::DEFAULT + msg_mode::IGNORE_ERRORS);
+
+        (key, nft_address, get_next?) = user_nfts.udict_get_next?(32, key);
+    }
+}
+
+() send_coins(slice user_address, int amount, int mode, slice payload) impure inline {
+    cell msg = begin_cell()
+        .store_uint(msg_flag::bounceable, 6) ;; flags
+        .store_slice(user_address) ;; destination address
+        .store_coins(amount) ;; amount of nanoTons to send
+        .store_msgbody_prefix_slice()
+        .store_uint(0, 32) ;; common slice op code
+        .store_slice(payload) ;; comment
+    .end_cell();
+
+    send_raw_message(msg, mode);
+}

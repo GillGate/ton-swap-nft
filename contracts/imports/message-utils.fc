@@ -1,0 +1,16 @@
+;; message flags
+const int msg_flag::non_bounceable = 0x10;
+const int msg_flag::bounceable = 0x18;
+
+;; sned message modes
+const msg_mode::DEFAULT = 0;
+const msg_mode::PAY_FEES_SEPARATELY = 1;
+const msg_mode::IGNORE_ERRORS = 2;
+const msg_mode::SELFDESTRUCT_ON_EMPTY = 32;
+const msg_mode::CARRY_REMAINING_GAS = 64;
+const msg_mode::CARRY_REMAINING_BALANCE = 128;
+
+;; helpers
+builder store_msgbody_prefix_slice(builder b) inline {
+    return b.store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1);
+}
